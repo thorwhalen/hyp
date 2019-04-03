@@ -214,8 +214,8 @@ class Pot(object):
         maps specified variables to {0, 1}
             var_values_to_map_to_1_dict is a {variable_name: values to map to 1} specification dict
         """
+        tb = self.tb.copy()
         for var_name, vals_to_map_to_1 in var_values_to_map_to_1_dict.items():
-            tb = self.tb.copy()
             if not hasattr(vals_to_map_to_1, '__iter__'):
                 vals_to_map_to_1 = [vals_to_map_to_1]
             lidx = tb[var_name].isin(vals_to_map_to_1)
@@ -276,10 +276,9 @@ class Pot(object):
         else:
             return self.tb.__repr__()
 
-    #def assert_pot_validity(self):
+    # def assert_pot_validity(self):
     #    assert 'pval' in self.tb.columns, "the potential dataframe has no column named 'pval'"
     #    assert len(self.tb.)
-
 
     #################################################################################
     # FACTORIES
@@ -297,16 +296,15 @@ class Pot(object):
         if isinstance(pts, pd.DataFrame):
             # tb = group_and_count(pts)
             # tb = ch_col_names(tb, 'pval', 'count')
-            return Pot(group_and_count(pts, count_col='pval'))
+            return cls(group_and_count(pts, count_col='pval'))
         else:
             counts = Counter(pts)
             if vars is None:
                 example_key = list(counts.keys())[0]
                 vars = list(range(len(example_key)))
-            return Pot(pd.DataFrame(
+            return cls(pd.DataFrame(
                 [dict(pval=v, **{kk: vv for kk, vv in zip(vars, k)}) for k, v in counts.items()])
             )
-
 
     @classmethod
     def from_count_df_to_count(cls, count_df, count_col='pval'):
@@ -315,9 +313,9 @@ class Pot(object):
         count_col
         """
         pot_vars = list(colloc.setdiff(count_df.columns, [count_col]))
-        tb = count_df[pot_vars+[count_col]].groupby(pot_vars).sum().reset_index()
+        tb = count_df[pot_vars + [count_col]].groupby(pot_vars).sum().reset_index()
         tb = ch_col_names(tb, 'pval', count_col)
-        return Pot(tb)
+        return cls(tb)
 
     @classmethod
     def from_points_to_bins(cls, pts, **kwargs):
@@ -326,22 +324,22 @@ class Pot(object):
         count_col
         """
         if isinstance(pts, pd.DataFrame):
-
             tb = group_and_count(pts)
             tb = ch_col_names(tb, 'pval', 'count')
-            return Pot(tb)
+            return cls(tb)
 
     @classmethod
     def rand(cls, n_var_vals=[2, 2], var_names=None, granularity=None, try_to_get_unique_values=False):
         # check inputs
         assert len(n_var_vals) <= 26, "You can't request more than 26 variables: That's just crazy"
         if var_names is None:
-            var_names = [str(chr(x)) for x in range(ord('A'),ord('Z'))]
+            var_names = [str(chr(x)) for x in range(ord('A'), ord('Z'))]
         assert len(n_var_vals) <= len(var_names), "You can't have less var_names than you have n_var_vals"
         assert min(array(n_var_vals)) >= 2, "n_var_vals elements should be >= 2"
 
         # make the df by taking the cartesian product of the n_var_vals defined ranges
-        df = reduce(cartesian_product, [pd.DataFrame(data=list(range(x)), columns=[y]) for x, y in zip(n_var_vals, var_names)])
+        df = reduce(cartesian_product,
+                    [pd.DataFrame(data=list(range(x)), columns=[y]) for x, y in zip(n_var_vals, var_names)])
 
         n_vals = len(df)
 
@@ -373,7 +371,7 @@ class Pot(object):
 
         df['pval'] = list(map(float, pvals))
 
-        return Pot(df)
+        return cls(df)
 
 
 class ProbPot(Pot):
@@ -395,7 +393,7 @@ class ProbPot(Pot):
 
     def relative_risk(self, event_var, exposure_var, event_val=1, exposed_val=1):
         prob = self >> [event_var, exposure_var]
-        prob.binarize({event_var: event_val, exposure_var: exposed_val})
+        prob = prob.binarize({event_var: event_val, exposure_var: exposed_val})
         return (prob / {exposure_var: 1})[{event_var: 1}] \
                / (prob / {exposure_var: 0})[{event_var: 1}]
 
@@ -411,14 +409,14 @@ class ProbPot(Pot):
         RR[list(range(len(m))), list(range(len(m)))] = nan
 
         RRL = np.log2(RR)
+
         def normalizor(X):
             min_x = nanmin(X)
             range_x = nanmax(X) - min_x
             return lambda x: (x - min_x) / range_x
+
         normalize_this = normalizor(RRL)
         center = normalize_this(0)
-
-
 
         color_map = shifted_color_map(cmap=cm.get_cmap('coolwarm'), start=0, midpoint=center, stop=1)
         imshow(RRL, cmap=color_map, interpolation='none');
@@ -426,7 +424,9 @@ class ProbPot(Pot):
         xticks(list(range(shape(RRL)[0])), m, rotation=90)
         yticks(list(range(shape(RRL)[1])), m)
         cbar = colorbar()
-        cbar.ax.set_yticklabels(["%.02f" % x for x in np.exp2(array(ut.pplot.get.get_colorbar_tick_labels_as_floats(cbar)))])
+        cbar.ax.set_yticklabels(
+            ["%.02f" % x for x in np.exp2(array(ut.pplot.get.get_colorbar_tick_labels_as_floats(cbar)))])
+
 
 #
 #
@@ -478,10 +478,3 @@ def _val_add_(tb):
     tb['pval'] = tb['pval_x'] + tb['pval_y']
     tb.drop(labels=['pval_x', 'pval_y'], axis=1, inplace=True)
     return tb
-
-
-
-
-
-
-
