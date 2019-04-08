@@ -5,22 +5,20 @@ from numpy import *
 from matplotlib.pyplot import *
 import numpy as np
 from collections import Counter
+from functools import reduce
+
 # from numpy.random import rand
 # from numpy.random import permutation
 
 import ut.pcoll.order_conserving as colloc
 
-# import ut as ut
 from ut.daf.op import cartesian_product
 from ut.daf.gr import group_and_count
 from ut.daf.ch import ch_col_names
 from ut.daf.manip import reorder_columns_as
-from ut.util.ulist import ascertain_list
-from ut.util.prand import rand_numbers_summing_to_one
 from ut.pplot.color import shifted_color_map
 
 import ut.pplot.get
-from functools import reduce
 
 
 class Pot(object):
@@ -66,11 +64,11 @@ class Pot(object):
             del tb[k]
         return Pot(tb)
 
-    def project_to(self, var_list=[]):
+    def project_to(self, var_list):
         """
         project to a subset of variables (marginalize out other variables)
         """
-        var_list = colloc.intersect(ascertain_list(var_list), self.vars())
+        var_list = colloc.intersect(_ascertain_list(var_list), self.vars())
         if var_list:  # if non-empty, marginalize out other variables
             return Pot(self.tb[var_list + ['pval']].groupby(var_list).sum().reset_index())
         else:  # if _var_list is empty, return a singleton potential containing the sum of the vals of self.tb
@@ -79,7 +77,7 @@ class Pot(object):
     def __rshift__(self, var_list):
         return self.project_to(var_list)
 
-    def normalize(self, var_list=[]):
+    def normalize(self, var_list):
         """
         'Normalization' of the pot with respect to _var_list.
         Will define the pot by the projection of the pot on a subset of the variables.
@@ -186,7 +184,7 @@ class Pot(object):
     # Usable UTILS
     ###########################################
     def order_vars(self, var_list, sort_pts=True):
-        self.tb = reorder_columns_as(self.tb, ascertain_list(var_list))
+        self.tb = reorder_columns_as(self.tb, _ascertain_list(var_list))
         if sort_pts:
             self.sort_pts()
         return self
@@ -198,6 +196,10 @@ class Pot(object):
 
     def pval(self):
         return self.tb.pval
+
+    @property
+    def values(self):
+        return np.array(self.tb.pval)
 
     def pval_of(self, var_val_dict, default_val=0.0):
         t = self.get_slice(var_val_dict)
@@ -220,7 +222,7 @@ class Pot(object):
                 vals_to_map_to_1 = [vals_to_map_to_1]
             lidx = tb[var_name].isin(vals_to_map_to_1)
             tb[var_name] = 0
-            tb[var_name].loc[lidx] = 1
+            tb.loc[lidx, var_name] = 1
         tb = tb.groupby(self.vars()).sum().reset_index(drop=False)
         return Pot(tb)
 
@@ -352,11 +354,11 @@ class Pot(object):
                     return np.random.permutation([0.1, 0.2, 0.3, 0.4])
                 else:
                     if n_vals <= 12:
-                        return rand_numbers_summing_to_one(n_vals, 0.05)
+                        return _rand_numbers_summing_to_one(n_vals, 0.05)
                     else:
-                        return rand_numbers_summing_to_one(n_vals, 0.01)
+                        return _rand_numbers_summing_to_one(n_vals, 0.01)
             else:
-                return rand_numbers_summing_to_one(n_vals, granularity)
+                return _rand_numbers_summing_to_one(n_vals, granularity)
 
         # choose random vals
         if try_to_get_unique_values:
@@ -373,11 +375,6 @@ class Pot(object):
 
         return cls(df)
 
-
-class ProbPot(Pot):
-    def __init__(self, data=None):
-        super(ProbPot, self).__init__(data=data)
-
     def prob_of(self, var_val_dict):
         t = self.get_slice(var_val_dict)
         n = len(t.tb)
@@ -391,11 +388,32 @@ class ProbPot(Pot):
     def given(self, conditional_vars):
         return ProbPot(self.__div__(conditional_vars))
 
-    def relative_risk(self, event_var, exposure_var, event_val=1, exposed_val=1):
+    def relative_risk(self, event_var, exposure_var, event_val=1, exposure_val=1):
         prob = self >> [event_var, exposure_var]
-        prob = prob.binarize({event_var: event_val, exposure_var: exposed_val})
-        return (prob / {exposure_var: 1})[{event_var: 1}] \
-               / (prob / {exposure_var: 0})[{event_var: 1}]
+        prob = prob.binarize({event_var: event_val, exposure_var: exposure_val})
+        prob_when_exposed = (prob / {exposure_var: 1})[{event_var: 1}]
+        prob_when_not_exposed = (prob / {exposure_var: 0})[{event_var: 1}]
+        rel_risk = (prob_when_exposed / prob_when_not_exposed).values
+        if rel_risk:
+            return rel_risk[0]
+        else:
+            return np.nan
+
+    def count_pot_to_prob_pot(self, prior_count=1, possible_vals_for_var=None):
+        """
+
+        :param prior_count: The number to add to every (possible) combination of variable values (that is,
+        the cartesian product of possible_vals_for_var
+        :param possible_vals_for_var: A dict providing the list of values each variable can have
+        :return: A probability pot, obtained from the count pot after adding prior_count to all counts (included those
+        vars coordinates that didn't show up (i.e. had count of 0)
+        """
+        raise NotImplementedError("You wan't it? Implement it!")
+
+
+class ProbPot(Pot):
+    def __init__(self, data=None):
+        super(ProbPot, self).__init__(data=data)
 
     @staticmethod
     def plot_relrisk_matrix(relrisk):
@@ -447,8 +465,8 @@ def from_points_to_binary(d, mid_fun=median):
 
 def relative_risk(joint_prob_pot, event_var, exposure_var):
     prob = joint_prob_pot >> [event_var, exposure_var]
-    return (prob / {exposure_var: 1})[{event_var: 1}] \
-           / (prob / {exposure_var: 0})[{event_var: 1}]
+    return ((prob / {exposure_var: 1})[{event_var: 1}]
+            / (prob / {exposure_var: 0})[{event_var: 1}]).values[0]
 
 
 def _val_prod_(tb):
@@ -478,3 +496,31 @@ def _val_add_(tb):
     tb['pval'] = tb['pval_x'] + tb['pval_y']
     tb.drop(labels=['pval_x', 'pval_y'], axis=1, inplace=True)
     return tb
+
+
+def _ascertain_list(x):
+    """
+    _ascertain_list(x) blah blah returns [x] if x is not already a list, and x itself if it's already a list
+    Use: This is useful when a function expects a list, but you want to also input a single element without putting this
+    this element in a list
+    """
+    if not isinstance(x, list):
+        if hasattr(x, '__iter__') and not isinstance(x, dict):
+            x = list(x)
+        else:
+            x = [x]
+    return x
+
+
+from decimal import Decimal
+
+
+def _rand_numbers_summing_to_one(n_numbers, granularity=0.01):
+    n_choices = 1.0 / granularity
+    assert round(n_choices) == int(n_choices), "granularity must be an integer divisor of 1.0"
+    x = np.linspace(granularity, 1.0 - granularity, n_choices - 1)
+    x = sorted(x[np.random.choice(list(range(1, len(x))), size=n_numbers - 1, replace=False)])
+    x = np.concatenate([[0.0], x, [1.0]])
+    x = np.diff(x)
+    x = np.array([Decimal(xi).quantize(Decimal(str(granularity))) for xi in x])
+    return x
