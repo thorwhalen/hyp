@@ -331,6 +331,12 @@ class Pot(object):
             return cls(tb)
 
     @classmethod
+    def from_hard_evidence(cls, **var_val):
+        df = pd.DataFrame([{var: val for var, val in var_val.items()}])
+        df['pval'] = 1
+        return cls.from_count_df_to_count(df)
+
+    @classmethod
     def rand(cls, n_var_vals=[2, 2], var_names=None, granularity=None, try_to_get_unique_values=False):
         # check inputs
         assert len(n_var_vals) <= 26, "You can't request more than 26 variables: That's just crazy"
