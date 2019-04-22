@@ -10,7 +10,7 @@ from functools import reduce
 import hyp.utils.order_conserving as colloc
 from hyp.utils.color import shifted_color_map, get_colorbar_tick_labels_as_floats
 from hyp.utils.daf import cartesian_product, ch_col_names, group_and_count, reorder_columns_as
-from hyp.utils.daf import map_vals_to_ints_inplace
+from hyp.utils.daf import map_vals_to_ints_inplace, complete_df_with_all_var_combinations
 
 
 # import ut.pplot.get
@@ -40,8 +40,10 @@ class Pot(object):
             self.tb = pd.DataFrame({'pval': 1}, index=[''])  # default "unit" potential
         self.tb.index = [''] * len(self.tb)
 
+    @property
     def vars(self):
-        return colloc.setdiff(list(self.tb.columns), ['pval'])
+        return [c for c in self.tb.columns if c != 'pval']
+        # return colloc.setdiff(list(self.tb.columns), ['pval'])
 
     ###########################################
     # OPERATIONS
@@ -63,7 +65,7 @@ class Pot(object):
         """
         project to a subset of variables (marginalize out other variables)
         """
-        var_list = colloc.intersect(_ascertain_list(var_list), self.vars())
+        var_list = colloc.intersect(_ascertain_list(var_list), self.vars)
         if var_list:  # if non-empty, marginalize out other variables
             return Pot(self.tb[var_list + ['pval']].groupby(var_list).sum().reset_index())
         else:  # if _var_list is empty, return a singleton potential containing the sum of the vals of self.tb
@@ -101,7 +103,7 @@ class Pot(object):
             return self / self.project_to(item)
         elif isinstance(item, dict):
             intercept_dict = item
-            var_list = colloc.intersect(self.vars(), list(intercept_dict.keys()))
+            var_list = colloc.intersect(self.vars, list(intercept_dict.keys()))
             return (self / self.project_to(var_list)).get_slice(intercept_dict)
         else:
             TypeError('Unknown item type')
@@ -114,17 +116,27 @@ class Pot(object):
         if item:
             if isinstance(item, dict):
                 return self.get_slice(item)
-            elif isinstance(item, list):
+            elif isinstance(item, (list, tuple)):
                 return self.project_to(item)
             elif isinstance(item, str):
                 return self.project_to(item)
             else:
-                raise TypeError("Unknown type for item (must be None, dict, list, or string)")
+                raise TypeError(
+                    "Unknown type for item (must be None, dict, list, or string). Was: {}".format(type(item)))
         else:
-            return Pot(pd.DataFrame({'pval': self.tb['pval'].sum()}, index=['']))
+            return self.__class__(pd.DataFrame({'pval': self.tb['pval'].sum()}, index=['']))
+
+    def add_count(self, num):
+        tb = complete_df_with_all_var_combinations(self.tb, var_cols=self.vars, fill_value=0)
+        tb['pval'] += num
+        return self.__class__(tb)
 
     def __add__(self, pot):
-        return Pot(_val_add_(self._merge_(pot)))
+        # TODO: See if both cases are consistent
+        if isinstance(pot, self.__class__):
+            return self.__class__(_val_add_(self._merge_(pot)))
+        else:
+            return self.add_count(pot)
         # if isinstance(y, float) | isinstance(y, int):
         #     self.tb['pval'] += y
         # else:
@@ -134,7 +146,7 @@ class Pot(object):
         """
         Multiply two potentials
         """
-        return Pot(_val_prod_(self._merge_(pot)))
+        return self.__class__(_val_prod_(self._merge_(pot)))
 
     def __div__(self, item):
         """
@@ -145,14 +157,14 @@ class Pot(object):
         --> This resembles P(A|B=1) kind of thing...
         """
         if isinstance(item, Pot):
-            return Pot(_val_div_(self._merge_(item)))
+            return self.__class__(_val_div_(self._merge_(item)))
         elif isinstance(item, str):
             return self.normalize([item])
         elif isinstance(item, list):
             return self.normalize(item)
         elif isinstance(item, dict):
             intercept_dict = item
-            var_list = colloc.intersect(self.vars(), list(intercept_dict.keys()))
+            var_list = colloc.intersect(self.vars, list(intercept_dict.keys()))
             return self.normalize(var_list).get_slice(intercept_dict)
         else:
             TypeError('Unknown item type')
@@ -167,13 +179,13 @@ class Pot(object):
         This is used, for example, when wanting to compute P(X|D=data) as the normalization of P(D=data|X) * P(X)
         (Bayes rule). We can write that as P(X) absorbing P(D=data|X). The result has the dimensions of X.
         """
-        return self.__mul__(pot).normalize([]).project_to(self.vars())
+        return self.__mul__(pot).normalize([]).project_to(self.vars)
 
     def unassimilate(self, pot):
         """
         Inverse of assimilate.
         """
-        return self.__div__(pot).normalize([]).project_to(self.vars())
+        return self.__div__(pot).normalize([]).project_to(self.vars)
 
     ###########################################
     # Usable UTILS
@@ -185,10 +197,11 @@ class Pot(object):
         return self
 
     def sort_pts(self, var_list=None, **kwargs):
-        var_list = var_list or self.vars()
+        var_list = var_list or self.vars
         self.tb = self.tb.sort_values(by=var_list, **kwargs)
         return self
 
+    @property
     def pval(self):
         return self.tb.pval
 
@@ -218,24 +231,24 @@ class Pot(object):
             lidx = tb[var_name].isin(vals_to_map_to_1)
             tb[var_name] = 0
             tb.loc[lidx, var_name] = 1
-        tb = tb.groupby(self.vars()).sum().reset_index(drop=False)
-        return Pot(tb)
+        tb = tb.groupby(self.vars).sum().reset_index(drop=False)
+        return self.__class__(tb)
 
     def round(self, ndigits=None, inplace=False):
         if ndigits is None:
             ndigits = abs(int(math.log10(self.tb['pval'].min()))) + 1 + 2
-            print(ndigits)
+            # print(ndigits)
         rounded_pvals = [round(x, ndigits) for x in self.tb['pval']]
         if inplace:
             self.tb['pval'] = rounded_pvals
         else:
-            x = Pot(self)
+            x = self.__class__(self)
             x.tb['pval'] = rounded_pvals
             return x
 
     def rect_perspective_df(self):
-        vars = self.vars()
-        assert len(self.vars()) == 2, "You can only get the rect_perspective_df of a pot with exactly two variables"
+        vars = self.vars
+        assert len(self.vars) == 2, "You can only get the rect_perspective_df of a pot with exactly two variables"
         return self.tb.set_index([vars[0], vars[1]]).unstack(vars[1])['pval']
 
     ###########################################
@@ -249,7 +262,7 @@ class Pot(object):
         producing val_x and val_y columns that will contain the original left and right values, aligned with the join.
         Note: If the vars intersection is empty, the join will correspond to the cartesian product of the variables.
         """
-        on = colloc.intersect(self.vars(), pot.vars())  # we will merge on the intersection of the variables (not pval)
+        on = colloc.intersect(self.vars, pot.vars)  # we will merge on the intersection of the variables (not pval)
         if on:
             return pd.merge(self.tb, pot.tb, how='inner', on=on, sort=True, suffixes=('_x', '_y'))
         else:  # if no common variables, take the cartesian product
@@ -268,8 +281,8 @@ class Pot(object):
         Here the dataframe is indexed by the vars and then made into a string.
         This provides a hierarchical progression perspective to the variable combinations.
         """
-        if self.vars():
-            return self.tb.set_index(self.vars()).__str__()
+        if self.vars:
+            return self.tb.set_index(self.vars).__str__()
         else:
             return self.tb.__repr__()
 
@@ -282,7 +295,7 @@ class Pot(object):
 
     @classmethod
     def binary_pot(cls, varname, prob=1):
-        return Pot(pd.DataFrame({varname: [0, 1], 'pval': [1 - prob, prob]}))
+        return cls(pd.DataFrame({varname: [0, 1], 'pval': [1 - prob, prob]}))
 
     @classmethod
     def from_points_to_count(cls, pts, vars=None):
@@ -389,8 +402,10 @@ class Pot(object):
     def given(self, conditional_vars):
         return ProbPot(self.__div__(conditional_vars))
 
-    def relative_risk(self, event_var, exposure_var, event_val=1, exposure_val=1):
+    def relative_risk(self, event_var, exposure_var, event_val=1, exposure_val=1, smooth_count=None):
         prob = self >> [event_var, exposure_var]
+        if smooth_count is not None:
+            prob = prob.count_pot_to_prob_pot(prior_count=smooth_count)
         prob = prob.binarize({event_var: event_val, exposure_var: exposure_val})
         prob_when_exposed = (prob / {exposure_var: 1})[{event_var: 1}]
         prob_when_not_exposed = (prob / {exposure_var: 0})[{event_var: 1}]
@@ -409,7 +424,11 @@ class Pot(object):
         :return: A probability pot, obtained from the count pot after adding prior_count to all counts (included those
         vars coordinates that didn't show up (i.e. had count of 0)
         """
-        raise NotImplementedError("You wan't it? Implement it!")
+        if possible_vals_for_var is not None:
+            raise NotImplementedError("You wan't it? Implement it!")
+        c = (self + prior_count).tb
+        c['pval'] /= c['pval'].sum()
+        return self.__class__(c)
 
 
 class ProbPot(Pot):
@@ -506,7 +525,9 @@ def _ascertain_list(x):
     this element in a list
     """
     if not isinstance(x, list):
-        if hasattr(x, '__iter__') and not isinstance(x, dict):
+        if isinstance(x, str):
+            x = [x]
+        elif hasattr(x, '__iter__') and not isinstance(x, dict):
             x = list(x)
         else:
             x = [x]

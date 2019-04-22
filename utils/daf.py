@@ -3,6 +3,12 @@ from numpy import array, unique
 from hyp.utils.ordered_set import OrderedSet
 
 
+def complete_df_with_all_var_combinations(df, var_cols=None, fill_value=None):
+    if var_cols is None:
+        var_cols = df.columns
+    multi_index = pd.MultiIndex.from_product([df[var].unique() for var in var_cols], names=var_cols)
+    return df.set_index(var_cols).reindex(multi_index, fill_value=fill_value).reset_index()
+
 def cartesian_product(df1, df2):
     join_col = 'this is the joining col that wont show up elsewhere'
     df1[join_col] = 1
