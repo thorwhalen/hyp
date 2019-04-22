@@ -1,0 +1,8 @@
+logs
+*.pyc
+*misc.xml
+*workspace.xml
+.idea/modules.xml
+.idea/workspace.xml
+.idea/*
+oto/.idea/workspace.xml

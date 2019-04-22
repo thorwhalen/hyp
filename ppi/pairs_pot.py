@@ -7,8 +7,8 @@ from pandas import Series, DataFrame
 from numpy import array
 from scipy.stats import chi2_contingency
 
-from ut.ppi.pot import Pot
-from ut.pdict.special import DictDefaultDict
+from hyp.ppi.pot import Pot
+from hyp.utils.special import DictDefaultDict
 
 
 class EdgeCounter(object):

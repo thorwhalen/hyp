@@ -7,18 +7,13 @@ import numpy as np
 from collections import Counter
 from functools import reduce
 
-# from numpy.random import rand
-# from numpy.random import permutation
+import hyp.utils.order_conserving as colloc
+from hyp.utils.color import shifted_color_map, get_colorbar_tick_labels_as_floats
+from hyp.utils.daf import cartesian_product, ch_col_names, group_and_count, reorder_columns_as
+from hyp.utils.daf import map_vals_to_ints_inplace
 
-import ut.pcoll.order_conserving as colloc
 
-from ut.daf.op import cartesian_product
-from ut.daf.gr import group_and_count
-from ut.daf.ch import ch_col_names
-from ut.daf.manip import reorder_columns_as
-from ut.pplot.color import shifted_color_map
-
-import ut.pplot.get
+# import ut.pplot.get
 
 
 class Pot(object):
@@ -425,9 +420,9 @@ class ProbPot(Pot):
     def plot_relrisk_matrix(relrisk):
         t = relrisk.copy()
         matrix_shape = (t['exposure'].nunique(), t['event'].nunique())
-        m = ut.daf.to.map_vals_to_ints_inplace(t, cols_to_map=['exposure'])
+        m = map_vals_to_ints_inplace(t, cols_to_map=['exposure'])
         m = m['exposure']
-        ut.daf.to.map_vals_to_ints_inplace(t, cols_to_map={'event': dict(list(zip(m, list(range(len(m))))))})
+        map_vals_to_ints_inplace(t, cols_to_map={'event': dict(list(zip(m, list(range(len(m))))))})
         RR = zeros(matrix_shape)
         RR[t['exposure'], t['event']] = t['relative_risk']
         RR[list(range(len(m))), list(range(len(m)))] = nan
@@ -449,7 +444,7 @@ class ProbPot(Pot):
         yticks(list(range(shape(RRL)[1])), m)
         cbar = colorbar()
         cbar.ax.set_yticklabels(
-            ["%.02f" % x for x in np.exp2(array(ut.pplot.get.get_colorbar_tick_labels_as_floats(cbar)))])
+            ["%.02f" % x for x in np.exp2(array(get_colorbar_tick_labels_as_floats(cbar)))])
 
 
 #
