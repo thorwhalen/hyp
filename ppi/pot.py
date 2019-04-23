@@ -59,7 +59,18 @@ class Pot(object):
         for k, v in intercept_dict.items():
             tb = tb[tb[k] == v]
             del tb[k]
-        return Pot(tb)
+        return self.__class__(tb)
+
+    def select(self, selection):
+        """
+        Select a sub-pot
+        :param selection:
+        :return:
+        """
+        assert callable(selection), f"selection needs to be a callable. Was a {type(selection)}"
+        tb = pd.DataFrame(list(filter(selection, self.tb.to_dict(orient='records'))))
+        return self.__class__(tb[self.vars + ['pval']])
+
 
     def project_to(self, var_list):
         """
@@ -67,9 +78,9 @@ class Pot(object):
         """
         var_list = colloc.intersect(_ascertain_list(var_list), self.vars)
         if var_list:  # if non-empty, marginalize out other variables
-            return Pot(self.tb[var_list + ['pval']].groupby(var_list).sum().reset_index())
+            return self.__class__(self.tb[var_list + ['pval']].groupby(var_list).sum().reset_index())
         else:  # if _var_list is empty, return a singleton potential containing the sum of the vals of self.tb
-            return Pot(pd.DataFrame({'pval': self.tb['pval'].sum()}, index=['']))
+            return self.__class__(pd.DataFrame({'pval': self.tb['pval'].sum()}, index=['']))
 
     def __rshift__(self, var_list):
         return self.project_to(var_list)
@@ -400,7 +411,7 @@ class Pot(object):
             raise RuntimeError("In prob_of(): get_slice returned more than one value")
 
     def given(self, conditional_vars):
-        return ProbPot(self.__div__(conditional_vars))
+        return self.__class__(self.__div__(conditional_vars))
 
     def relative_risk(self, event_var, exposure_var, event_val=1, exposure_val=1, smooth_count=None):
         prob = self >> [event_var, exposure_var]
